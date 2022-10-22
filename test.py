@@ -12,7 +12,7 @@ TESTS = "tests"
 FIXTURES = TESTS + os.sep + "fixtures"
 OUTPUT = TESTS + os.sep + "output"
 
-
+# 
 def b64encode_file(filename: str):
     with open(os.path.join(FIXTURES, filename), "rb") as file:
         return base64.b64encode(file.read())
