@@ -81,7 +81,7 @@ RUN pip install -e diffusers
 # We add the banana boilerplate here
 ADD server.py .
 EXPOSE 8000
-
+ 
 # Dev: docker build --build-arg HF_AUTH_TOKEN=${HF_AUTH_TOKEN} ...
 # Banana: currently, comment out ARG and set by hand ENV line.
 ARG HF_AUTH_TOKEN
