@@ -13,50 +13,69 @@ Please give credit and link back to this repo if you use it in a public project.
 * *Permute* base config to multiple forks based on yaml config with vars
 * Optionally send signed event logs / performance data to a REST endpoint
 * Can automatically download a checkpoint file and convert to diffusers.
+* S3 support, dreambooth training.
 
 Note: This image was created for [kiri.art](https://kiri.art/).
 Everything is open source but there may be certain request / response
 assumptions.  If anything is unclear, please open an issue.
 
-## [Read the CHANGELOG for Important Updates.](./CHANGELOG.md)
+## Updates and Help
+
+* [Official `docker-diffusers-api` Forum](https://banana-forums.dev/c/open-source/docker-diffusers-api/16):
+  help, updates, discussion.
+* Subscribe ("watch") these forum topics for:
+  * [notable **`main`** branch updates](https://banana-forums.dev/t/official-releases-main-branch/35)
+  * [notable **`dev`** branch updates](https://banana-forums.dev/t/development-releases-dev-branch/53)
+* Always [check the CHANGELOG](./CHANGELOG.md) for important updates when upgrading.
+
+**Official help in our dedicated forum https://banana-forums.dev/c/open-source/docker-diffusers-api/16.**
+
+*[See the `dev` branch for the latest features.](https://github.com/kiri-art/docker-diffusers-api/tree/dev)
+**Pull Requests must be submitted against the dev branch.***
 
 ## Usage:
 
-1. Clone or fork this repo.
+Firstly, fork and clone this repo.
 
-1. **Variables**:
+Most of the configuration happens via docker build variables.  You can
+see all the options in the [Dockerfile](./Dockerfile), and edit them
+there directly, or set via docker command line or e.g. Banana's dashboard
+UI once support for build variables land (any day now).
 
-    1. *EITHER*:
-        1. Set in `Dockerfile`.
-    2. *OR*:
-        1. Set `HF_AUTH_TOKEN` environment variable,
-        1. Edit `scripts/permutations.yaml`,
-        1. Run `scripts/permute.sh` to create a bunch of distinct forks.
-    3. *DEV MODE*:
-        1. Leave `MODEL_ID` as `ALL` and *all* models will be downloaded,
-           (as listed in [`loadModel.py`](./loadModel.py)) allowing you
-           to switch at request time (great for dev, useless for serverless).
+If you're only deploying one container, that's all you need!  If you
+intend to deploy multiple containers each with different variables
+(e.g. a few different models), you can edit the example
+[`scripts/permutations.yaml`](scripts/permutations.yaml)] file and
+run [`scripts/permute.sh`](scripts/permute.sh) to create a number
+of sub-repos in the `permutations` directory.
 
-1. **Building**
+Lastly, there's an option to set `MODEL_ID=ALL`, and *all* models will
+be downloaded, and switched at request time (great for dev, useless for
+serverless).
 
-    1. Set `HF_AUTH_TOKEN` environment var if you haven't set it elsewhere.
-    1. `docker build -t banana-sd --build-arg HF_AUTH_TOKEN=$HF_AUTH_TOKEN .`
-    1. Optionally add `DOCKER_BUILDKIT=1 BUILDKIT_PROGRESS=plain docker` to
-       start of the line, depending on your preferences.  (Recommended if
-       you're using the `root-cache` feature.)
+**Deploying to banana?** That's it!  You're done.  Commit your changes and push.
 
-1. **Running**
+## Running locally / development:
 
-    1. `docker run -it --gpus all -p 8000:8000 banana-sd python3 server.py`
-    1. Note: the `-it` is optional but makes it alot quicker/easier to stop the
-       container using `Ctrl-C`.
-    1. If you get a `CUDA initialization: CUDA unknown error` after suspend,
-       just stop the container, `rmmod nvidia_uvm`, and restart.
+**Building**
+
+1. `docker build -t banana-sd --build-arg HF_AUTH_TOKEN=$HF_AUTH_TOKEN .`
+1. See [CONTRIBUTING.md](./CONTRIBUTING.md) for more helpful hints.
+1. Note: your first build can take a really long time, depending on
+    your PC & network speed, and *especially when using the `CHECKPOINT_URL`
+    feature*.  Great time to grab a coffee or take a walk.
+
+**Running**
+
+1. `docker run -it --gpus all -p 8000:8000 banana-sd python3 server.py`
+1. Note: the `-it` is optional but makes it alot quicker/easier to stop the
+    container using `Ctrl-C`.
+1. If you get a `CUDA initialization: CUDA unknown error` after suspend,
+    just stop the container, `rmmod nvidia_uvm`, and restart.
 
 ## Sending requests
 
-See [sd-mui source](https://github.com/gadicc/stable-diffusion-react-nextjs-mui-pwa)
-for more info, but basically, it's:
+The container expects an `HTTP POST` request with the following JSON body:
 
 ```json
 {
@@ -69,22 +88,89 @@ for more info, but basically, it's:
     "seed": 3239022079
   },
   "callInputs": {
-    "MODEL_ID": "CompVis/stable-diffusion-v1-4",
+    "MODEL_ID": "runwayml/stable-diffusion-v1-5",
     "PIPELINE": "StableDiffusionPipeline",
-    "SCHEDULER": "LMS",
+    "SCHEDULER": "LMSDiscreteScheduler",
     "safety_checker": true,
   },
 }
 ```
 
+If you're using banana's SDK, it looks something like this:
+
+```js
+const out = await banana.run(apiKey, modelKey, { "modelInputs": modelInputs, "callInputs": callInputs });
+```
+
+NB: if you're coming from another banana starter repo, note that we
+explicitly name `modelInputs` above, and send a bigger object (with
+`modelInputs` and `callInputs` keys) for the banana-sdk's
+"modelInputs" argument.
+
 If provided, `init_image` and `mask_image` should be base64 encoded.
 
-Sorry, but this format might change without notice based on the needs of SD-MUI.
-It's been stable for a while but we make no promises.  Your best bet is always to
-keep up-to-date with the SD-MUI source.
+**Schedulers**: docker-diffusers-api is simply a wrapper around diffusers,
+literally any scheduler included in diffusers will work out of the box,
+provided it can loaded with its default config and without requiring
+any other explicit arguments at init time.  In any event, the following
+schedulers are the most common and most well tested:
+`DPMSolverMultistepScheduler` (fast!  only needs 20 steps!),
+`LMSDiscreteScheduler`, `DDIMScheduler`, `PNDMScheduler`,
+`EulerAncestralDiscreteScheduler`, `EulerDiscreteScheduler`.
+
+<a name="testing"></a>
+## Examples and testing
 
 There are also very basic examples in [test.py](./test.py), which you can view
 and call `python test.py` if the container is already running on port 8000.
+You can also specify a specific test, change some options, and run against a
+deployed banana image:
+
+```bash
+$ python test.py
+Usage: python3 test.py [--banana] [--xmfe=1/0] [--scheduler=SomeScheduler] [all / test1] [test2] [etc]
+
+# Run against http://localhost:8000/ (Nvidia Quadro RTX 5000)
+$ python test.py txt2img
+Running test: txt2img
+Request took 5.9s (init: 3.2s, inference: 5.9s)
+Saved /home/dragon/www/banana/banana-sd-base/tests/output/txt2img.png
+
+# Run against deployed banana image (Nvidia A100)
+$ export BANANA_API_KEY=XXX
+$ BANANA_MODEL_KEY=XXX python3 test.py --banana txt2img
+Running test: txt2img
+Request took 19.4s (init: 2.5s, inference: 3.5s)
+Saved /home/dragon/www/banana/banana-sd-base/tests/output/txt2img.png
+
+# Note that 2nd runs are much faster (ignore init, that isn't run again)
+Request took 3.0s (init: 2.4s, inference: 2.1s)
+```
+
+The best example of course is https://kiri.art/ and it's
+[source code](https://github.com/kiri-art/stable-diffusion-react-nextjs-mui-pwa).
+
+
+
+## Troubleshooting
+
+* **403 Client Error: Forbidden for url**
+
+  Make sure you've accepted the license on the model card of the HuggingFace model
+  specified in `MODEL_ID`, and that you correctly passed `HF_AUTH_TOKEN` to the
+  container.
+
+## Adding other Models
+
+You have two options.
+
+1. For a diffusers model, simply set the `MODEL_ID` docker build variable to the name
+  of the model hosted on HuggingFace, and it will be downloaded automatically at
+  build time.
+
+1. For a non-diffusers model, simply set the `CHECKPOINT_URL` docker build variable
+  to the URL of a `.ckpt` file, which will be downloaded and converted to the diffusers
+  format automatically at build time.
 
 ## Keeping forks up to date
 
@@ -107,38 +193,10 @@ Set `CALL_URL` and `SIGN_KEY` environment variables to send timing data on `init
 and `inference` start and end data.  You'll need to check the source code of here
 and sd-mui as the format is in flux.
 
-***Original Template README follows***
+This info is now logged regardless, and `init()` and `inference()` times are sent
+back via `{ $timings: { init: timeInMs, inference: timeInMs } }`.
 
-# 🍌 Banana Serverless
+## Acknowledgements
 
-This repo gives a basic framework for serving Stable Diffusion in production using simple HTTP servers.
+Originally based on https://github.com/bananaml/serverless-template-stable-diffusion.
 
-## Quickstart:
-
-1. Create your own private repo and copy the files from this template repo into it. You'll want a private repo so that your huggingface keys are secure.
-
-2. Install the [Banana Github App](https://github.com/apps/banana-serverless) to your new repo.
-
-3. Login in to the [Banana Dashboard](https://app.banana.dev) and setup your account by saving your payment details and linking your Github.
-
-4. Create huggingface account to get permission to download and run [Stable Diffusion](https://huggingface.co/CompVis/stable-diffusion-v1-4) text-to-image model.
-  - Accept terms and conditions for the use of the v1-4 [Stable Diffusion](https://huggingface.co/CompVis/stable-diffusion-v1-4)
-
-5. Edit the `dockerfile` in your forked repo with `ENV HF_AUTH_TOKEN=your_auth_token`
-
-6. Push that repo to main.
-
-From then onward, any pushes to the default repo branch (usually "main" or "master") trigger Banana to build and deploy your server, using the Dockerfile.
-Throughout the build we'll sprinkle in some secret sauce to make your server extra snappy 🔥
-
-It'll then be deployed on our Serverless GPU cluster and callable with any of our serverside SDKs:
-
-- [Python](https://github.com/bananaml/banana-python-sdk)
-- [Node JS / Typescript](https://github.com/bananaml/banana-node-sdk)
-- [Go](https://github.com/bananaml/banana-go)
-
-You can monitor buildtime and runtime logs by clicking the logs button in the model view on the [Banana Dashboard](https://app.banana.dev)
-
-<br>
-
-## Use Banana for scale.
