@@ -100,7 +100,7 @@ ARG MODEL_ID="runwayml/stable-diffusion-v1-5"
 ENV MODEL_ID=${MODEL_ID}
 
 # "" = model default.
-ARG PRECISION="fp16"
+ARG PRECISION=""
 ENV PRECISION=${PRECISION}
 ADD precision.py .
 
