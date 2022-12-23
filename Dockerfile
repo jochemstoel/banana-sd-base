@@ -85,7 +85,7 @@ EXPOSE 8000
 # Dev: docker build --build-arg HF_AUTH_TOKEN=${HF_AUTH_TOKEN} ...
 # Banana: currently, comment out ARG and set by hand ENV line.
 ARG HF_AUTH_TOKEN
-ENV HF_AUTH_TOKEN=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
+ENV HF_AUTH_TOKEN=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
 
 # MODEL_ID, can be any of:
 # 1) Hugging face model name
@@ -103,13 +103,13 @@ ENV MODEL_ID=${MODEL_ID}
 ARG PRECISION=""
 ENV PRECISION=${PRECISION}
 ADD precision.py .
- 
-# ARG PIPELINE="StableDiffusionInpaintPipeline"
-ARG PIPELINE="ALL"
-ENV PIPELINE=${PIPELINE}
 
-ARG USE_DREAMBOOTH=0
-ENV USE_DREAMBOOTH=${USE_DREAMBOOTH}
+# ARG PIPELINE="StableDiffusionInpARG PRECISION=""
+ENV PRECISION=${PRECISION}
+ADD precision.py .
+ 
+
+ENV USE_DREAMBOOTH=1
 
 ARG AWS_ACCESS_KEY_ID
 ARG AWS_SECRET_ACCESS_KEY
