@@ -87,6 +87,7 @@ EXPOSE 8000
 ARG HF_AUTH_TOKEN
 ENV HF_AUTH_TOKEN=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
 
+
 # MODEL_ID, can be any of:
 # 1) Hugging face model name
 # 2) A directory containing a diffusers model
@@ -108,7 +109,7 @@ ADD precision.py .
 ARG PIPELINE="ALL"
 ENV PIPELINE=${PIPELINE}
 
-ARG USE_DREAMBOOTH=0
+ARG USE_DREAMBOOTH=1
 ENV USE_DREAMBOOTH=${USE_DREAMBOOTH}
 
 ARG AWS_ACCESS_KEY_ID
