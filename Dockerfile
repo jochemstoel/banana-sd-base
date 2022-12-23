@@ -85,7 +85,7 @@ EXPOSE 8000
 # Dev: docker build --build-arg HF_AUTH_TOKEN=${HF_AUTH_TOKEN} ...
 # Banana: currently, comment out ARG and set by hand ENV line.
 ARG HF_AUTH_TOKEN
-ENV HF_AUTH_TOKEN=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
+ENV HF_AUTH_TOKEN=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 
 
 # MODEL_ID, can be any of:
 # 1) Hugging face model name
