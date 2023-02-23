@@ -96,7 +96,7 @@ ENV HF_AUTH_TOKEN=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
 # "CompVis/stable-diffusion-v1-4", "hakurei/waifu-diffusion",
 # "stabilityai/stable-diffusion-2",
 # "stabilityai/stable-diffusion-2-inpainting" etc.
-ARG MODEL_ID="stabilityai/stable-diffusion-2-1"
+ARG MODEL_ID="runwayml/stable-diffusion-v1-5"
 ENV MODEL_ID=${MODEL_ID}
 
 # "" = model default.
