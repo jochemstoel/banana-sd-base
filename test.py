@@ -15,10 +15,13 @@ from io import BytesIO
 from PIL import Image
 from pathlib import Path, PosixPath
 
-path = os.path.dirname(os.path.realpath(sys.argv[0]))
+# path = os.path.dirname(os.path.realpath(sys.argv[0]))
+path = "."
 TESTS = path + os.sep + "tests"
 FIXTURES = TESTS + os.sep + "fixtures"
 OUTPUT = TESTS + os.sep + "output"
+TEST_URL = os.environ.get("TEST_URL", "http://localhost:8000/")
+BANANA_API_URL = os.environ.get("BANANA_API_URL", "https://api.banana.dev")
 Path(OUTPUT).mkdir(parents=True, exist_ok=True)
 
 
@@ -36,6 +39,15 @@ def output_path(filename: str):
     return os.path.join(OUTPUT, filename)
 
 
+# https://stackoverflow.com/a/1094933/1839099
+def sizeof_fmt(num, suffix="B"):
+    for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
+        if abs(num) < 1024.0:
+            return f"{num:3.1f}{unit}{suffix}"
+        num /= 1024.0
+    return f"{num:.1f}Yi{suffix}"
+
+
 def decode_and_save(image_byte_string: str, name: str):
     image_encoded = image_byte_string.encode("utf-8")
     image_bytes = BytesIO(base64.b64decode(image_encoded))
@@ -43,6 +55,11 @@ def decode_and_save(image_byte_string: str, name: str):
     fp = output_path(name + ".png")
     image.save(fp)
     print("Saved " + fp)
+    size_formatted = sizeof_fmt(os.path.getsize(fp))
+
+    return (
+        f"[{image.width}x{image.height} {image.format} image, {size_formatted} bytes]"
+    )
 
 
 all_tests = {}
@@ -53,15 +70,36 @@ def test(name, inputs):
     all_tests.update({name: inputs})
 
 
-def runTest(name, banana, extraCallInputs, extraModelInputs):
-    inputs = all_tests.get(name)
+def runTest(name, args, extraCallInputs, extraModelInputs):
+    origInputs = all_tests.get(name)
+    inputs = {
+        "modelInputs": origInputs.get("modelInputs", {}).copy(),
+        "callInputs": origInputs.get("callInputs", {}).copy(),
+    }
     inputs.get("callInputs").update(extraCallInputs)
     inputs.get("modelInputs").update(extraModelInputs)
 
     print("Running test: " + name)
 
+    inputs_to_log = {
+        "modelInputs": inputs["modelInputs"].copy(),
+        "callInputs": inputs["callInputs"].copy(),
+    }
+    model_inputs_to_log = inputs_to_log["modelInputs"]
+
+    for key in ["init_image", "image"]:
+        if key in model_inputs_to_log:
+            model_inputs_to_log[key] = "[image]"
+
+    instance_images = model_inputs_to_log.get("instance_images", None)
+    if instance_images:
+        model_inputs_to_log["instance_images"] = f"[Array({len(instance_images)})]"
+
+    print(json.dumps(inputs_to_log, indent=4))
+    print()
+
     start = time.time()
-    if banana:
+    if args.get("banana", None):
         BANANA_API_KEY = os.getenv("BANANA_API_KEY")
         BANANA_MODEL_KEY = os.getenv("BANANA_MODEL_KEY")
         if BANANA_MODEL_KEY == None or BANANA_API_KEY == None:
@@ -76,7 +114,7 @@ def runTest(name, banana, extraCallInputs, extraModelInputs):
             "modelInputs": inputs,
             "startOnly": False,
         }
-        response = requests.post("https://api.banana.dev/start/v4/", json=payload)
+        response = requests.post(f"{BANANA_API_URL}/start/v4/", json=payload)
         result = response.json()
         callID = result.get("callID")
 
@@ -84,8 +122,8 @@ def runTest(name, banana, extraCallInputs, extraModelInputs):
             while result.get(
                 "message", None
             ) != "success" and not "error" in result.get("message", None):
-                secondsSinceStart = round((time.time() - start) / 1000)
-                print(str(datetime.datetime.now()) + f": t+{secondsSinceStart}s")
+                secondsSinceStart = time.time() - start
+                print(str(datetime.datetime.now()) + f": t+{secondsSinceStart:.1f}s")
                 print(json.dumps(result, indent=4))
                 print
                 payload = {
@@ -95,9 +133,7 @@ def runTest(name, banana, extraCallInputs, extraModelInputs):
                     "apiKey": BANANA_API_KEY,
                     "callID": callID,
                 }
-                response = requests.post(
-                    "https://api.banana.dev/check/v4/", json=payload
-                )
+                response = requests.post(f"{BANANA_API_URL}/check/v4/", json=payload)
                 result = response.json()
 
         modelOutputs = result.get("modelOutputs", None)
@@ -107,9 +143,55 @@ def runTest(name, banana, extraCallInputs, extraModelInputs):
             print(result)
             return
         result = modelOutputs[0]
-    else:
-        response = requests.post("http://localhost:8000/", json=inputs)
+    elif args.get("runpod", None):
+        RUNPOD_API_URL = "https://api.runpod.ai/v1/"
+        RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY")
+        RUNPOD_MODEL_KEY = os.getenv("RUNPOD_MODEL_KEY")
+        if not (RUNPOD_API_KEY and RUNPOD_MODEL_KEY):
+            print("Error: RUNPOD_API_KEY or RUNPOD_MODEL_KEY not set, aborting...")
+            sys.exit(1)
+
+        url_base = RUNPOD_API_URL + RUNPOD_MODEL_KEY
+
+        payload = {
+            "input": inputs,
+        }
+        print(url_base + "/run")
+        response = requests.post(
+            url_base + "/run",
+            json=payload,
+            headers={"Authorization": "Bearer " + RUNPOD_API_KEY},
+        )
+
+        if response.status_code != 200:
+            print("Unexpected HTTP response code: " + str(response.status_code))
+            sys.exit(1)
+
+        print(response)
         result = response.json()
+        print(result)
+
+        id = result["id"]
+
+        while result["status"] != "COMPLETED":
+            time.sleep(1)
+            response = requests.get(
+                f"{url_base}/status/{id}",
+                headers={"Authorization": "Bearer " + RUNPOD_API_KEY},
+            )
+            result = response.json()
+
+        result = result["output"]
+
+    else:
+        test_url = args.get("test_url", None) or TEST_URL
+        response = requests.post(test_url, json=inputs)
+        try:
+            result = response.json()
+        except requests.exceptions.JSONDecodeError as error:
+            print(error)
+            print(response.text)
+            sys.exit(1)
 
     finish = time.time() - start
     timings = result.get("$timings")
@@ -138,29 +220,50 @@ def runTest(name, banana, extraCallInputs, extraModelInputs):
         result.get("images_base64", None) == None
         and result.get("image_base64", None) == None
     ):
+        error = result.get("$error", None)
+        if error:
+            code = error.get("code", None)
+            name = error.get("name", None)
+            message = error.get("message", None)
+            stack = error.get("stack", None)
+            if code and name and message and stack:
+                print()
+                title = f"Exception {code} on container:"
+                print(title)
+                print("-" * len(title))
+                # print(f'{name}("{message}")') - stack includes it.
+                print(stack)
+                return
+
         print(json.dumps(result, indent=4))
         print()
-        return
+        return result
 
     images_base64 = result.get("images_base64", None)
     if images_base64:
         for idx, image_byte_string in enumerate(images_base64):
-            decode_and_save(image_byte_string, f"{name}_{idx}")
+            images_base64[idx] = decode_and_save(image_byte_string, f"{name}_{idx}")
     else:
-        decode_and_save(result["image_base64"], name)
+        result["image_base64"] = decode_and_save(result["image_base64"], name)
 
     print()
+    print(json.dumps(result, indent=4))
+    print()
+    return result
 
 
 test(
     "txt2img",
     {
-        "modelInputs": {"prompt": "realistic field of grass"},
+        "modelInputs": {
+            "prompt": "realistic field of grass",
+            "num_inference_steps": 20,
+        },
         "callInputs": {
-            "MODEL_ID": "runwayml/stable-diffusion-v1-5",
-            "PIPELINE": "StableDiffusionPipeline",
-            "SCHEDULER": "LMSDiscreteScheduler",
-            # "xformers_memory_efficient_attention": False,
+            # "MODEL_ID": "<override_default>",  # (default)
+            # "PIPELINE": "StableDiffusionPipeline",  # (default)
+            # "SCHEDULER": "DPMSolverMultistepScheduler",  # (default)
+            # "xformers_memory_efficient_attention": False,  # (default)
         },
     },
 )
@@ -172,12 +275,7 @@ test(
         "modelInputs": {
             "prompt": "realistic field of grass",
             "num_images_per_prompt": 2,
-        },
-        "callInputs": {
-            "MODEL_ID": "runwayml/stable-diffusion-v1-5",
-            "PIPELINE": "StableDiffusionPipeline",
-            "SCHEDULER": "LMSDiscreteScheduler",
-        },
+        }
     },
 )
 
@@ -187,12 +285,10 @@ test(
     {
         "modelInputs": {
             "prompt": "A fantasy landscape, trending on artstation",
-            "init_image": b64encode_file("sketch-mountains-input.jpg"),
+            "image": b64encode_file("sketch-mountains-input.jpg"),
         },
         "callInputs": {
-            "MODEL_ID": "runwayml/stable-diffusion-v1-5",
             "PIPELINE": "StableDiffusionImg2ImgPipeline",
-            "SCHEDULER": "LMSDiscreteScheduler",
         },
     },
 )
@@ -202,7 +298,7 @@ test(
     {
         "modelInputs": {
             "prompt": "a cat sitting on a bench",
-            "init_image": b64encode_file("overture-creations-5sI6fQgYIuo.png"),
+            "image": b64encode_file("overture-creations-5sI6fQgYIuo.png"),
             "mask_image": b64encode_file("overture-creations-5sI6fQgYIuo_mask.png"),
         },
         "callInputs": {
@@ -229,15 +325,27 @@ test(
     },
 )
 
+test(
+    "checkpoint",
+    {
+        "modelInputs": {
+            "prompt": "1girl",
+        },
+        "callInputs": {
+            "MODEL_ID": "hakurei/waifu-diffusion-v1-3",
+            "MODEL_URL": "s3://",
+            "CHECKPOINT_URL": "http://huggingface.co/hakurei/waifu-diffusion-v1-3/resolve/main/wd-v1-3-float16.ckpt",
+        },
+    },
+)
+
 if os.getenv("USE_PATCHMATCH"):
     test(
         "outpaint",
         {
             "modelInputs": {
                 "prompt": "girl with a pearl earing standing in a big room",
-                "init_image": b64encode_file(
-                    "girl_with_pearl_earing_outpainting_in.png"
-                ),
+                "image": b64encode_file("girl_with_pearl_earing_outpainting_in.png"),
             },
             "callInputs": {
                 "MODEL_ID": "CompVis/stable-diffusion-v1-4",
@@ -270,9 +378,6 @@ if True or os.getenv("USE_DREAMBOOTH"):
                 # "push_to_hub": True,
             },
             "callInputs": {
-                "MODEL_ID": "runwayml/stable-diffusion-v1-5",
-                "PIPELINE": "StableDiffusionPipeline",
-                "SCHEDULER": "DDPMScheduler",
                 "train": "dreambooth",
                 # Option 2: store on S3.  Note the **s3:///* (x3).  See notes below.
                 # "dest_url": "s3:///bucket/filename.tar.zst".
@@ -281,7 +386,7 @@ if True or os.getenv("USE_DREAMBOOTH"):
     )
 
 
-def main(tests_to_run, banana, extraCallInputs, extraModelInputs):
+def main(tests_to_run, args, extraCallInputs, extraModelInputs):
     invalid_tests = []
     for test in tests_to_run:
         if all_tests.get(test, None) == None:
@@ -292,12 +397,13 @@ def main(tests_to_run, banana, extraCallInputs, extraModelInputs):
         exit(1)
 
     for test in tests_to_run:
-        runTest(test, banana, extraCallInputs, extraModelInputs)
+        runTest(test, args, extraCallInputs, extraModelInputs)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--banana", required=False, action="store_true")
+    parser.add_argument("--runpod", required=False, action="store_true")
     parser.add_argument(
         "--xmfe",
         required=False,
@@ -356,7 +462,7 @@ if __name__ == "__main__":
 
     main(
         tests_to_run,
-        banana=args.banana,
+        vars(args),
         extraCallInputs=call_inputs,
         extraModelInputs=model_inputs,
     )

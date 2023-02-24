@@ -19,26 +19,28 @@ def get_now():
     return round(time.time() * 1000)
 
 
-send_url = os.getenv("SEND_URL")
-if send_url == "":
-    send_url = None
+SEND_URL = os.getenv("SEND_URL")
+if SEND_URL == "":
+    SEND_URL = None
 
-sign_key = os.getenv("SIGN_KEY")
-if sign_key == "":
-    sign_key = None
+SIGN_KEY = os.getenv("SIGN_KEY", "")
+if SIGN_KEY == "":
+    SIGN_KEY = None
 
 futureSession = FuturesSession()
 
-with open("/proc/self/mountinfo") as file:
-    line = file.readline().strip()
-    while line:
-        if "/docker/containers/" in line:
-            container_id = line.split("/docker/containers/")[
-                -1
-            ]  # Take only text to the right
-            container_id = container_id.split("/")[0]  # Take only text to the left
-            break
+container_id = os.getenv("CONTAINER_ID")
+if not container_id:
+    with open("/proc/self/mountinfo") as file:
         line = file.readline().strip()
+        while line:
+            if "/containers/" in line:
+                container_id = line.split("/containers/")[
+                    -1
+                ]  # Take only text to the right
+                container_id = container_id.split("/")[0]  # Take only text to the left
+                break
+            line = file.readline().strip()
 
 
 init_used = False
@@ -68,8 +70,10 @@ def getTimings():
     return timings
 
 
-def send(type: str, status: str, payload: dict = {}):
+def send(type: str, status: str, payload: dict = {}, opts: dict = {}):
     now = get_now()
+    send_url = opts.get("SEND_URL", SEND_URL)
+    sign_key = opts.get("SIGN_KEY", SIGN_KEY)
 
     if status == "start":
         session.update({type: {"start": now, "last_time": now}})
@@ -88,8 +92,8 @@ def send(type: str, status: str, payload: dict = {}):
         "payload": payload,
     }
 
-    if send_url:
-        input = json.dumps(data, separators=(",", ":"))
+    if send_url and sign_key:
+        input = json.dumps(data, separators=(",", ":")) + sign_key
         sig = hashlib.md5(input.encode("utf-8")).hexdigest()
         data["sig"] = sig
 
