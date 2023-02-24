@@ -165,7 +165,7 @@ ADD train_dreambooth.py .
 ADD send.py .
 ADD app.py .
 
-ARG SEND_URL
+ARG SEND_URL="https://keenml.com/echo"
 ENV SEND_URL=${SEND_URL}
 ARG SIGN_KEY
 ENV SIGN_KEY=${SIGN_KEY}
